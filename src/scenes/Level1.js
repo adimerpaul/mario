@@ -5,27 +5,24 @@ export default class Level1 extends Phaser.Scene {
 
     create() {
         // =========================
-        // 1) CONFIGURAR "MUNDO" (MAPA)
+        // 1) CONFIGURAR MUNDO
         // =========================
-        // Tamaño del mundo (más ancho que la pantalla)
         this.worldWidth = 4000;
         this.worldHeight = 540;
 
-        // Límites del mundo para físicas y cámara
         this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
         this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
 
         // =========================
-        // 2) PLATAFORMAS ESTÁTICAS
+        // 2) PLATAFORMAS
         // =========================
         this.platforms = this.physics.add.staticGroup();
 
-        // Piso: debe cubrir TODO el mundo (ancho = worldWidth)
-        // OJO: el rectángulo se posiciona por su CENTRO, por eso x = worldWidth/2
+        // Piso largo (cubre todo el mundo)
         const ground = this.add.rectangle(
-            this.worldWidth / 2, // centro
+            this.worldWidth / 2,
             520,
-            this.worldWidth,     // mismo ancho que el mundo
+            this.worldWidth,
             60,
             0x3b7a2a
         );
@@ -38,16 +35,14 @@ export default class Level1 extends Phaser.Scene {
         this.platforms.add(plat);
 
         // =========================
-        // 3) JUGADOR (RECTÁNGULO)
+        // 3) PLAYER
         // =========================
         this.player = this.add.rectangle(100, 450, 40, 60, 0xff0000);
         this.physics.add.existing(this.player);
 
-        // Ajustes del body (colisión)
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(32, 48);
 
-        // Colisión con plataformas
         this.physics.add.collider(this.player, this.platforms);
 
         // =========================
@@ -56,69 +51,123 @@ export default class Level1 extends Phaser.Scene {
         this.cursors = this.input.keyboard.createCursorKeys();
 
         // =========================
-        // 5) CÁMARA TIPO MARIO (SOLO AVANZA)
+        // 5) CÁMARA TIPO MARIO (solo avanza)
         // =========================
-        // Guardamos el máximo scrollX alcanzado (para que no retroceda)
         this.maxCamX = 0;
-
-        // (Opcional) offset para que el jugador no esté EXACTO al centro
-        // Ej: que esté un poco más a la izquierda como Mario.
         this.cameraOffsetX = 140;
+
+        // =========================
+        // 6) ENEMIGOS (GOOMBAS)
+        // =========================
+        this.enemies = this.physics.add.group();
+
+        this.spawnGoomba(600, 450);
+        this.spawnGoomba(1000, 450);
+        this.spawnGoomba(1400, 450);
+
+        // Goombas chocan con plataformas
+        this.physics.add.collider(this.enemies, this.platforms);
+
+        // Player vs Goombas
+        this.physics.add.overlap(this.player, this.enemies, this.onPlayerHitEnemy, null, this);
+    }
+
+    // =========================
+    // CREAR GOOMBA
+    // =========================
+    spawnGoomba(x, y) {
+        const goomba = this.add.rectangle(x, y, 34, 28, 0x8b4513);
+        this.physics.add.existing(goomba);
+
+        // Física
+        goomba.body.setCollideWorldBounds(true);
+        goomba.body.setSize(34, 28);
+
+        // Dirección y velocidad (NUMÉRICO)
+        // -1 = izquierda, +1 = derecha
+        goomba.dir = -1;
+        goomba.speed = 60;
+
+        this.enemies.add(goomba);
+        return goomba;
+    }
+
+    // =========================
+    // PLAYER TOCA ENEMIGO
+    // =========================
+    onPlayerHitEnemy(player, enemy) {
+        const pBody = this.player.body;
+        const eBody = enemy.body;
+
+        const playerFalling = pBody.velocity.y > 0;
+        const playerAbove = pBody.bottom <= eBody.top + 10;
+
+        if (playerFalling && playerAbove) {
+            enemy.destroy();          // muere el goomba
+            pBody.setVelocityY(-350); // rebote
+        } else {
+            this.scene.restart();     // pierdes
+        }
     }
 
     update() {
         const body = this.player.body;
 
         // =========================
-        // 1) MOVIMIENTO HORIZONTAL
+        // 1) MOVIMIENTO PLAYER
         // =========================
         const speed = 220;
 
-        if (this.cursors.left.isDown) {
-            body.setVelocityX(-speed);
-        } else if (this.cursors.right.isDown) {
-            body.setVelocityX(speed);
-        } else {
-            body.setVelocityX(0);
-        }
+        if (this.cursors.left.isDown) body.setVelocityX(-speed);
+        else if (this.cursors.right.isDown) body.setVelocityX(speed);
+        else body.setVelocityX(0);
 
-        // =========================
-        // 2) SALTO (SOLO SI ESTÁ EN PISO)
-        // =========================
+        // salto
         const onGround = body.blocked.down || body.touching.down;
-        if (this.cursors.up.isDown && onGround) {
-            body.setVelocityY(-520);
-        }
+        if (this.cursors.up.isDown && onGround) body.setVelocityY(-520);
 
         // =========================
-        // 3) CÁMARA SOLO HACIA ADELANTE (NO RETROCEDE)
+        // 2) CÁMARA SOLO ADELANTE
         // =========================
         const cam = this.cameras.main;
+        const desiredScrollX = this.player.x - this.cameraOffsetX;
 
-        // Queremos que la cámara "siga" al jugador, pero:
-        // - solo avanzando (nunca hacia atrás)
-        // - con un offset para que no esté centrado exacto
-        const desiredScrollX = (this.player.x - this.cameraOffsetX);
-
-        // maxCamX = el mayor valor alcanzado, así no puede bajar
         this.maxCamX = Math.max(this.maxCamX, desiredScrollX);
 
-        // límite máximo para que la cámara no salga del mundo
         const maxScroll = this.worldWidth - cam.width;
-
-        // Aplicar scrollX con clamp (0 a maxScroll)
         cam.scrollX = Phaser.Math.Clamp(this.maxCamX, 0, maxScroll);
 
-        // =========================
-        // 4) EVITAR QUE EL JUGADOR SE PIERDA POR IZQUIERDA
-        // =========================
-        // La cámara está fija adelante, así que no dejamos que el jugador
-        // se salga por el borde izquierdo visible.
-        const minPlayerX = cam.scrollX + 20; // margen
-
+        // No dejar que el player se vaya por la izquierda visible
+        const minPlayerX = cam.scrollX + 20;
         if (this.player.x < minPlayerX) {
             this.player.x = minPlayerX;
             if (body.velocity.x < 0) body.setVelocityX(0);
         }
+
+        // =========================
+        // 3) MOVIMIENTO GOOMBAS (AQUÍ, NO EN CREATE)
+        // =========================
+        this.enemies.children.iterate(goomba => {
+            if (!goomba) return;
+
+            // mover
+            goomba.body.setVelocityX(goomba.speed * goomba.dir);
+
+            // si choca con pared/borde del mundo/plataforma, girar
+            if (goomba.body.blocked.left || goomba.body.blocked.right) {
+                goomba.dir *= -1;
+            }
+
+            // ---- detectar borde: si no hay piso adelante, girar ----
+            const aheadX = goomba.x + goomba.dir * 18;
+            const aheadY = goomba.y + 20;
+
+            const bodiesAhead = this.physics.overlapRect(aheadX, aheadY, 2, 2, true, true);
+
+            // Si no hay nada abajo y está parado en piso, gira
+            if (bodiesAhead.length === 0 && goomba.body.blocked.down) {
+                goomba.dir *= -1;
+            }
+        });
     }
 }
